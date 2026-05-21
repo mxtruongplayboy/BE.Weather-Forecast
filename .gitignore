@@ -1,0 +1,10 @@
+# Data cache (downloaded từ NOAA/ECMWF — không commit)
+data/
+*.log
+
+# OS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/

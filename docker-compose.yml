@@ -1,0 +1,105 @@
+# Open-Meteo Forecast Backend (point-forecast JSON API)
+#
+# Stack ĐỘC LẬP với tile-server. Chạy trên cùng VPS được, nhưng:
+#   - project name riêng: `open-meteo-forecast`
+#   - network riêng: `omfc-net`
+#   - container prefix: `omfc-*`
+#   - port nội bộ: 8081 (không trùng tile-server)
+#   - data volume riêng: ./data (KHÔNG share GRIB2 cache với tile-server)
+#
+# Deploy:
+#   cd /opt/open-meteo-forecast
+#   docker compose up -d
+#
+# Smoke test:
+#   curl 'http://127.0.0.1:8081/v1/forecast?latitude=10.77&longitude=106.7&hourly=temperature_2m'
+#
+# Source code: https://github.com/open-meteo/open-meteo (AGPL-3.0)
+# Underlying data:
+#   - NOAA GFS    (US Government public domain)
+#   - ECMWF IFS   (CC BY 4.0 — cần attribution)
+#   - DWD ICON    (DWD Geo-Nutzungsverordnung — cần attribution)
+#   - CAMS Europe (Copernicus license — cần attribution)
+# App đã có ForecastAttribution widget để hiển thị các credit này.
+
+name: open-meteo-forecast
+
+networks:
+  omfc-net:
+    name: omfc-net
+
+services:
+  # ── REST API (port 8081 nội bộ, nginx reverse proxy ra ngoài) ─────────────
+  api:
+    image: ghcr.io/open-meteo/open-meteo:latest
+    container_name: omfc-api
+    restart: unless-stopped
+    networks: [omfc-net]
+    ports:
+      - "127.0.0.1:8081:8080" # bind localhost only — nginx ra ngoài
+    volumes:
+      - ./data:/app/data
+    command: serve
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --spider -q http://127.0.0.1:8080/v1/forecast?latitude=10.77&longitude=106.7&current=temperature_2m || exit 1",
+        ]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 600s # cho phép 10 phút download batch đầu
+
+  # ── Sync NOAA GFS (16 ngày, 0.25°, mỗi 6h) ───────────────────────────────
+  sync-gfs:
+    image: ghcr.io/open-meteo/open-meteo:latest
+    container_name: omfc-sync-gfs
+    restart: unless-stopped
+    networks: [omfc-net]
+    volumes:
+      - ./data:/app/data
+    command: download-loop ncep_gfs013
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+
+  # ── Sync ECMWF IFS Open Data (15 ngày, 0.25°, mỗi 12h) ───────────────────
+  sync-ecmwf:
+    image: ghcr.io/open-meteo/open-meteo:latest
+    container_name: omfc-sync-ecmwf
+    restart: unless-stopped
+    networks: [omfc-net]
+    volumes:
+      - ./data:/app/data
+    command: download-loop ecmwf_ifs025
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+
+  # ── Sync CAMS Europe Air Quality (mỗi 12h) ───────────────────────────────
+  sync-aqi:
+    image: ghcr.io/open-meteo/open-meteo:latest
+    container_name: omfc-sync-aqi
+    restart: unless-stopped
+    networks: [omfc-net]
+    volumes:
+      - ./data:/app/data
+    command: download-loop cams_europe
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+
+  # ── Watchtower (auto-update Docker image hằng tuần) ──────────────────────
+  # OPTIONAL: bỏ comment nếu muốn auto-update. Tùy chọn an toàn hơn là
+  # manually pull mỗi 3 tháng: docker compose pull && docker compose up -d
+  # watchtower:
+  #   image: containrrr/watchtower
+  #   container_name: omfc-watchtower
+  #   restart: unless-stopped
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #   command: --schedule "0 0 3 * * 0"  # 3h sáng CN hàng tuần
+  #   environment:
+  #     - TZ=Asia/Ho_Chi_Minh
+  #     - WATCHTOWER_CLEANUP=true
+  #     - WATCHTOWER_SCOPE=omfc  # chỉ update container có label omfc
