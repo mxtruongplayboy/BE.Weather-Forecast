@@ -1,26 +1,26 @@
-# Open-Meteo Forecast Backend (point-forecast JSON API)
+# BE.Weather-Forecast — production docker-compose
 #
-# Stack ĐỘC LẬP với tile-server. Chạy trên cùng VPS được, nhưng:
-#   - project name riêng: `open-meteo-forecast`
-#   - network riêng: `omfc-net`
-#   - container prefix: `omfc-*`
-#   - port nội bộ: 8081 (không trùng tile-server)
-#   - data volume riêng: ./data (KHÔNG share GRIB2 cache với tile-server)
+# Stack ĐỘC LẬP với BE.Weather-Tiles (project=noaa_be tại :6969).
+# Cùng VPS được (206.72.200.120), nhưng:
+#   - Project: open-meteo-forecast
+#   - Network: omfc-net (riêng)
+#   - Container prefix: omfc-*
+#   - Host port: 6970 (mirror pattern 6969 của tile-BE)
+#   - Data volume: ./data riêng, KHÔNG share GRIB2 cache với tile-server
 #
-# Deploy:
-#   cd /opt/open-meteo-forecast
-#   docker compose up -d
+# Triển khai:
+#   1. scp -r BE.Weather-Forecast/ user@206.72.200.120:/opt/open-meteo-forecast/
+#   2. ssh user@206.72.200.120
+#   3. cd /opt/open-meteo-forecast
+#   4. docker compose up -d
+#   5. docker compose logs -f sync-gfs   (theo dõi download GRIB2 ~15-30 phút)
 #
-# Smoke test:
-#   curl 'http://127.0.0.1:8081/v1/forecast?latitude=10.77&longitude=106.7&hourly=temperature_2m'
+# Smoke test (sau khi sync xong):
+#   curl 'http://206.72.200.120:6970/v1/forecast?latitude=10.77&longitude=106.7&current=temperature_2m'
 #
-# Source code: https://github.com/open-meteo/open-meteo (AGPL-3.0)
-# Underlying data:
-#   - NOAA GFS    (US Government public domain)
-#   - ECMWF IFS   (CC BY 4.0 — cần attribution)
-#   - DWD ICON    (DWD Geo-Nutzungsverordnung — cần attribution)
-#   - CAMS Europe (Copernicus license — cần attribution)
-# App đã có ForecastAttribution widget để hiển thị các credit này.
+# Persistent state: ./data + ./logs — survive `docker compose down`.
+# Source code: github.com/open-meteo/open-meteo (AGPL-3.0)
+# Underlying data: NOAA GFS (public domain) + ECMWF/DWD/CAMS (CC BY 4.0)
 
 name: open-meteo-forecast
 
@@ -29,77 +29,142 @@ networks:
     name: omfc-net
 
 services:
-  # ── REST API (port 8081 nội bộ, nginx reverse proxy ra ngoài) ─────────────
+  # ── REST API (omfc-api) ──────────────────────────────────────────────────
+  # Phục vụ /v1/forecast + /v1/air-quality + /v1/search trên port 8080 nội bộ.
+  # Host map sang 6970 (mirror pattern :6969 của tile-BE).
   api:
     image: ghcr.io/open-meteo/open-meteo:latest
     container_name: omfc-api
     restart: unless-stopped
     networks: [omfc-net]
+
+    # CPU contention shield (giống tile-BE). API server không nặng CPU,
+    # chỉ đọc .om cache + interpolate → cpu cap thấp hơn tile.
+    cpu_shares: 2048   # 2× neighbor weight, đủ priority cho API
+
     ports:
-      - "127.0.0.1:8081:8080" # bind localhost only — nginx ra ngoài
+      # 0.0.0.0:6970 — nginx + admin BE đều có thể tiếp cận. Public traffic
+      # nên qua vhost forecast-api.* với rate-limit; truy cập trực tiếp port
+      # 6970 chỉ dùng cho debug / health check từ admin UI.
+      - "6970:8080"
+
     volumes:
       - ./data:/app/data
-    command: serve
+      - ./logs:/app/logs
+
     environment:
-      - TZ=Asia/Ho_Chi_Minh
+      TZ: Asia/Ho_Chi_Minh
+
+    deploy:
+      resources:
+        limits:
+          # API thường peak ~1-2 GB RAM, set 4G cap để có buffer.
+          memory: 4G
+          cpus: '1.5'
+        reservations:
+          memory: 512M
+
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+    command: serve
+
     healthcheck:
       test:
-        [
-          "CMD-SHELL",
-          "wget --spider -q http://127.0.0.1:8080/v1/forecast?latitude=10.77&longitude=106.7&current=temperature_2m || exit 1",
-        ]
+        - CMD-SHELL
+        - 'wget -q -O- "http://127.0.0.1:8080/v1/forecast?latitude=10.77&longitude=106.7&current=temperature_2m" >/dev/null || exit 1'
       interval: 60s
       timeout: 10s
       retries: 3
-      start_period: 600s # cho phép 10 phút download batch đầu
+      start_period: 600s   # 10 phút cho batch download đầu
 
-  # ── Sync NOAA GFS (16 ngày, 0.25°, mỗi 6h) ───────────────────────────────
+  # ── Sync NOAA GFS (omfc-sync-gfs) ───────────────────────────────────────
+  # Download GRIB2 từ nomads.ncep.noaa.gov mỗi 6h. Heavy I/O nhưng spike ngắn.
   sync-gfs:
     image: ghcr.io/open-meteo/open-meteo:latest
     container_name: omfc-sync-gfs
     restart: unless-stopped
     networks: [omfc-net]
+    cpu_shares: 1024
     volumes:
       - ./data:/app/data
-    command: download-loop ncep_gfs013
+      - ./logs:/app/logs
     environment:
-      - TZ=Asia/Ho_Chi_Minh
+      TZ: Asia/Ho_Chi_Minh
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '1.5'
+        reservations:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "30m"
+        max-file: "3"
+    command: download-loop ncep_gfs013
 
-  # ── Sync ECMWF IFS Open Data (15 ngày, 0.25°, mỗi 12h) ───────────────────
+  # ── Sync ECMWF IFS Open Data (omfc-sync-ecmwf) ───────────────────────────
   sync-ecmwf:
     image: ghcr.io/open-meteo/open-meteo:latest
     container_name: omfc-sync-ecmwf
     restart: unless-stopped
     networks: [omfc-net]
+    cpu_shares: 1024
     volumes:
       - ./data:/app/data
-    command: download-loop ecmwf_ifs025
+      - ./logs:/app/logs
     environment:
-      - TZ=Asia/Ho_Chi_Minh
+      TZ: Asia/Ho_Chi_Minh
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '1.5'
+        reservations:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "30m"
+        max-file: "3"
+    command: download-loop ecmwf_ifs025
 
-  # ── Sync CAMS Europe Air Quality (mỗi 12h) ───────────────────────────────
+  # ── Sync CAMS Europe Air Quality (omfc-sync-aqi) ─────────────────────────
   sync-aqi:
     image: ghcr.io/open-meteo/open-meteo:latest
     container_name: omfc-sync-aqi
     restart: unless-stopped
     networks: [omfc-net]
+    cpu_shares: 512
     volumes:
       - ./data:/app/data
-    command: download-loop cams_europe
+      - ./logs:/app/logs
     environment:
-      - TZ=Asia/Ho_Chi_Minh
+      TZ: Asia/Ho_Chi_Minh
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "30m"
+        max-file: "3"
+    command: download-loop cams_europe
 
-  # ── Watchtower (auto-update Docker image hằng tuần) ──────────────────────
-  # OPTIONAL: bỏ comment nếu muốn auto-update. Tùy chọn an toàn hơn là
-  # manually pull mỗi 3 tháng: docker compose pull && docker compose up -d
-  # watchtower:
-  #   image: containrrr/watchtower
-  #   container_name: omfc-watchtower
-  #   restart: unless-stopped
-  #   volumes:
-  #     - /var/run/docker.sock:/var/run/docker.sock
-  #   command: --schedule "0 0 3 * * 0"  # 3h sáng CN hàng tuần
-  #   environment:
-  #     - TZ=Asia/Ho_Chi_Minh
-  #     - WATCHTOWER_CLEANUP=true
-  #     - WATCHTOWER_SCOPE=omfc  # chỉ update container có label omfc
+# Tổng tài nguyên cap khi peak: 14G RAM, 5.5 cores. Trên VPS 206.72.200.120
+# (đã có tile-BE chiếm 2.5 cores + 12G), cần đảm bảo host có ≥20G RAM + 8 cores
+# tổng. Idle ~3G RAM (chỉ omfc-api active), sync-* idle/sleep giữa các runs.

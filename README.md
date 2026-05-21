@@ -13,6 +13,14 @@ Repo này nằm **cùng cấp** với:
 stack, riêng nginx vhost, riêng cron, riêng SSL cert. Có thể deploy chung
 VPS hoặc khác VPS — không phụ thuộc lẫn nhau.
 
+## Deploy target hiện tại
+
+- **VPS**: `206.72.200.120` (cùng host với BE.Weather-Tiles)
+- **Host port**: `6970` (tile-BE đang ở `6969`)
+- **Admin UI**: tab `Forecast BE` trong `http://206.72.200.120:6969/admin/`
+  → admin BE đã có proxy endpoints `/api/v1/admin/forecast/*` gọi xuống stack này.
+- **Deploy folder**: `/opt/open-meteo-forecast/` trên VPS
+
 ## Tại sao stack này?
 
 | Tiêu chí | Giá trị |
@@ -44,18 +52,17 @@ BE.Weather-Forecast/
 └── README.md                    # File này
 ```
 
-## Bước 1 — Deploy Docker stack
+## Bước 1 — Deploy Docker stack lên VPS 206.72.200.120
 
 ```bash
-# Trên máy dev — push repo lên git remote, sau đó pull về VPS
-# (hoặc copy trực tiếp)
-scp -r BE.Weather-Forecast/ user@vps:/opt/open-meteo-forecast/
+# Trên máy dev — copy repo lên VPS
+scp -r BE.Weather-Forecast/ user@206.72.200.120:/opt/open-meteo-forecast/
 
 # SSH lên VPS
-ssh user@vps
+ssh user@206.72.200.120
 cd /opt/open-meteo-forecast
 
-# Khởi động stack
+# Khởi động stack (4 containers: api + sync-gfs + sync-ecmwf + sync-aqi)
 docker compose up -d
 
 # Theo dõi download batch đầu (~15-30 phút, ~10-15 GB)
@@ -64,15 +71,45 @@ docker compose logs -f sync-gfs
 
 Khi nào sẵn sàng: log thấy `serve started on 0.0.0.0:8080` từ container `omfc-api`.
 
-Smoke test local:
+Smoke test trực tiếp (port 6970 đã publish ra host):
 
 ```bash
-curl 'http://127.0.0.1:8081/v1/forecast?latitude=10.77&longitude=106.7&hourly=temperature_2m,relative_humidity_2m'
+# Từ VPS hoặc bất kỳ máy nào có route đến 206.72.200.120
+curl 'http://206.72.200.120:6970/v1/forecast?latitude=10.77&longitude=106.7&hourly=temperature_2m,relative_humidity_2m'
 ```
 
 Phải trả về JSON với `hourly.time[]`, `hourly.temperature_2m[]`, v.v.
 
-## Bước 2 — nginx vhost + HTTPS
+## Bước 2 — Cập nhật tile-BE để admin có thể gọi Forecast BE
+
+Admin UI ở `http://206.72.200.120:6969/admin/` (tile-BE) có tab `Forecast BE`
+mới — gọi đến Forecast BE qua `host.docker.internal:6970`. Linux Docker cần
+khai báo `extra_hosts` trong tile-BE để resolve hostname này:
+
+```bash
+# Trên VPS, vào folder tile-BE
+cd /opt/<đường-dẫn-tile-BE>
+
+# Đã có sẵn trong docker-compose.yml (đã commit):
+#   extra_hosts:
+#     - "host.docker.internal:host-gateway"
+
+# Restart tile-BE để áp dụng
+docker compose up -d
+```
+
+Verify từ tile-BE container có gọi được Forecast BE:
+
+```bash
+docker exec noaa_be wget -qO- 'http://host.docker.internal:6970/v1/forecast?latitude=10.77&longitude=106.7&current=temperature_2m'
+```
+
+Mở admin UI → tab **Forecast BE** → click **Refresh** → badge phải hiện **Online**.
+
+## Bước 3 — (Tùy chọn) nginx vhost + HTTPS cho mobile app
+
+App mobile có thể gọi trực tiếp `http://206.72.200.120:6970/v1/...` (HTTP),
+nhưng cho production khuyến nghị có HTTPS vhost riêng:
 
 ```bash
 # Edit forecast-api.conf, đổi `forecast-api.yourdomain.com` thành subdomain thật
@@ -93,7 +130,7 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-Smoke test public:
+Smoke test public HTTPS:
 
 ```bash
 curl 'https://forecast-api.yourdomain.com/v1/forecast?latitude=10.77&longitude=106.7&current=temperature_2m'
@@ -113,6 +150,20 @@ tail /var/log/omfc-cleanup.log
 ## Bước 4 — Đổi `.env` của Flutter app
 
 Trong file `.env` của repo Flutter (KHÔNG commit lên git):
+
+**Option A — HTTP trực tiếp đến VPS (đơn giản, dùng cho dev/staging):**
+
+```env
+OPEN_METEO_FORECAST_URL=http://206.72.200.120:6970/v1
+OPEN_METEO_AIR_QUALITY_URL=http://206.72.200.120:6970/v1
+OPEN_METEO_GEOCODING_URL=http://206.72.200.120:6970/v1
+```
+
+⚠️ Android 9+ chặn HTTP cleartext mặc định — cần thêm
+`android:usesCleartextTraffic="true"` vào AndroidManifest. Hiện code đã set
+`true` trong `noaa_weather/android/app/src/main/AndroidManifest.xml`.
+
+**Option B — HTTPS qua nginx vhost (production):**
 
 ```env
 OPEN_METEO_FORECAST_URL=https://forecast-api.yourdomain.com/v1
