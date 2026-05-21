@@ -5,7 +5,7 @@
 #   - Project: open-meteo-forecast
 #   - Network: omfc-net (riêng)
 #   - Container prefix: omfc-*
-#   - Host port: 6970 (mirror pattern 6969 của tile-BE)
+#   - Host port: 6968 (mirror pattern 6969 của tile-BE)
 #   - Data volume: ./data riêng, KHÔNG share GRIB2 cache với tile-server
 #
 # Triển khai:
@@ -16,7 +16,7 @@
 #   5. docker compose logs -f sync-gfs   (theo dõi download GRIB2 ~15-30 phút)
 #
 # Smoke test (sau khi sync xong):
-#   curl 'http://206.72.200.120:6970/v1/forecast?latitude=10.77&longitude=106.7&current=temperature_2m'
+#   curl 'http://206.72.200.120:6968/v1/forecast?latitude=10.77&longitude=106.7&current=temperature_2m'
 #
 # Persistent state: ./data + ./logs — survive `docker compose down`.
 # Source code: github.com/open-meteo/open-meteo (AGPL-3.0)
@@ -31,7 +31,7 @@ networks:
 services:
   # ── REST API (omfc-api) ──────────────────────────────────────────────────
   # Phục vụ /v1/forecast + /v1/air-quality + /v1/search trên port 8080 nội bộ.
-  # Host map sang 6970 (mirror pattern :6969 của tile-BE).
+  # Host map sang 6968 (mirror pattern :6969 của tile-BE).
   api:
     image: ghcr.io/open-meteo/open-meteo:latest
     container_name: omfc-api
@@ -43,10 +43,10 @@ services:
     cpu_shares: 2048   # 2× neighbor weight, đủ priority cho API
 
     ports:
-      # 0.0.0.0:6970 — nginx + admin BE đều có thể tiếp cận. Public traffic
+      # 0.0.0.0:6968 — nginx + admin BE đều có thể tiếp cận. Public traffic
       # nên qua vhost forecast-api.* với rate-limit; truy cập trực tiếp port
-      # 6970 chỉ dùng cho debug / health check từ admin UI.
-      - "6970:8080"
+      # 6968 chỉ dùng cho debug / health check từ admin UI.
+      - "6968:8080"
 
     volumes:
       - ./data:/app/data
