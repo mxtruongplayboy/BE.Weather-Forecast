@@ -13,14 +13,16 @@
 #   2. ssh user@206.72.200.120
 #   3. cd /opt/open-meteo-forecast
 #   4. docker compose up -d
-#   5. docker compose logs -f sync-gfs   (theo dõi download GRIB2 ~15-30 phút)
+#   5. docker compose logs -f sync-gfs   (theo dõi download từ S3 ~5-15 phút)
 #
 # Smoke test (sau khi sync xong):
 #   curl 'http://206.72.200.120:6968/v1/forecast?latitude=10.77&longitude=106.7&current=temperature_2m'
 #
 # Persistent state: ./data + ./logs — survive `docker compose down`.
 # Source code: github.com/open-meteo/open-meteo (AGPL-3.0)
-# Underlying data: NOAA GFS (public domain) + ECMWF/DWD/CAMS (CC BY 4.0)
+# Data flow: NOAA/ECMWF/CAMS → Open-Meteo S3 mirror (openmeteo.s3.amazonaws.com)
+# → sync container kéo .om files đã convert sẵn → ./data → omfc-api serve.
+# Mình KHÔNG download GRIB2 trực tiếp từ NOMADS nữa (sync command bỏ download-loop).
 
 name: open-meteo-forecast
 
@@ -111,15 +113,20 @@ services:
       options:
         max-size: "30m"
         max-file: "3"
-    # Image mới đã bỏ `download-loop` → thay bằng `sync` (cùng behavior: poll
-    # nguồn upstream + download file mới). Phải liệt kê variables tường minh —
-    # đây là toàn bộ field FE Flutter app đang request (hourly + daily).
-    command: >
-      sync ncep_gfs013
-      temperature_2m,relative_humidity_2m,dewpoint_2m,apparent_temperature,
-      precipitation,precipitation_probability,weather_code,pressure_msl,
-      surface_pressure,cloud_cover,visibility,wind_speed_10m,wind_direction_10m,
-      wind_gusts_10m,uv_index,shortwave_radiation
+    # `sync` lấy file .om đã convert sẵn từ Open-Meteo S3 mirror — nhanh + nhẹ
+    # hơn nhiều so với download GRIB2 từ NOMADS rồi tự convert.
+    # --repeat-interval 15 → poll S3 mỗi 15 phút (không có flag này = chạy 1 lần
+    # rồi exit). Variables = toàn bộ field FE app yêu cầu.
+    command:
+      - sync
+      - ncep_gfs013
+      - temperature_2m,relative_humidity_2m,dewpoint_2m,apparent_temperature,precipitation,weather_code,pressure_msl,surface_pressure,cloud_cover,visibility,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,shortwave_radiation
+      - --repeat-interval
+      - "15"
+      - --concurrent
+      - "4"
+      - --past-days
+      - "1"
 
   # ── Sync ECMWF IFS Open Data (omfc-sync-ecmwf) ───────────────────────────
   sync-ecmwf:
@@ -145,12 +152,16 @@ services:
       options:
         max-size: "30m"
         max-file: "3"
-    command: >
-      sync ecmwf_ifs025
-      temperature_2m,relative_humidity_2m,dewpoint_2m,apparent_temperature,
-      precipitation,precipitation_probability,weather_code,pressure_msl,
-      surface_pressure,cloud_cover,wind_speed_10m,wind_direction_10m,
-      wind_gusts_10m
+    command:
+      - sync
+      - ecmwf_ifs025
+      - temperature_2m,relative_humidity_2m,dewpoint_2m,apparent_temperature,precipitation,weather_code,pressure_msl,surface_pressure,cloud_cover,wind_speed_10m,wind_direction_10m,wind_gusts_10m
+      - --repeat-interval
+      - "15"
+      - --concurrent
+      - "4"
+      - --past-days
+      - "1"
 
   # ── Sync CAMS Global Air Quality (omfc-sync-aqi) ─────────────────────────
   # IMPORTANT: dùng `cams_global`, KHÔNG phải `cams_europe`.
@@ -178,10 +189,16 @@ services:
       options:
         max-size: "30m"
         max-file: "3"
-    command: >
-      sync cams_global
-      pm2_5,pm10,carbon_monoxide,nitrogen_dioxide,ozone,sulphur_dioxide,
-      dust,aerosol_optical_depth,uv_index
+    command:
+      - sync
+      - cams_global
+      - pm2_5,pm10,carbon_monoxide,nitrogen_dioxide,ozone,sulphur_dioxide,dust,aerosol_optical_depth,uv_index
+      - --repeat-interval
+      - "30"
+      - --concurrent
+      - "2"
+      - --past-days
+      - "1"
 
 # Tổng tài nguyên cap khi peak: 14G RAM, 5.5 cores. Trên VPS 206.72.200.120
 # (đã có tile-BE chiếm 2.5 cores + 12G), cần đảm bảo host có ≥20G RAM + 8 cores
