@@ -39,16 +39,19 @@ services:
     container_name: omfc-api
     restart: unless-stopped
     networks: [omfc-net]
+    labels:
+      # Opt-in auto-update qua Weather-Watchtower (4 AM check).
+      com.centurylinklabs.watchtower.enable: "true"
 
     # CPU contention shield (giống tile-BE). API server không nặng CPU,
     # chỉ đọc .om cache + interpolate → cpu cap thấp hơn tile.
     cpu_shares: 2048   # 2× neighbor weight, đủ priority cho API
 
     ports:
-      # 0.0.0.0:6968 — nginx + admin BE đều có thể tiếp cận. Public traffic
-      # nên qua vhost forecast-api.* với rate-limit; truy cập trực tiếp port
-      # 6968 chỉ dùng cho debug / health check từ admin UI.
-      - "6968:8080"
+      # Bind 127.0.0.1 ONLY → port 6968 KHÔNG listen public interface.
+      # Public traffic PHẢI qua nginx vhost SSL (xem nginx/forecast-api.conf).
+      # admin BE container vẫn gọi được qua host.docker.internal:6968 (extra_hosts).
+      - "127.0.0.1:6968:8080"
 
     volumes:
       - ./data:/app/data
@@ -57,12 +60,23 @@ services:
     environment:
       TZ: Asia/Ho_Chi_Minh
 
+    # Container hardening — read-only rootfs, drop caps.
+    cap_drop: [ALL]
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+    security_opt:
+      - no-new-privileges:true
+
     deploy:
       resources:
         limits:
           # API thường peak ~1-2 GB RAM, set 4G cap để có buffer.
           memory: 4G
           cpus: '1.5'
+          pids: 500
         reservations:
           memory: 512M
 

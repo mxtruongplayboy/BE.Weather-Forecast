@@ -10,10 +10,16 @@
       "Read(//Users/goodjob/mobile/doan/BE.Weather-Tiles/**)",
       "Bash(node -e ' *)",
       "Bash(which deno *)",
-      "Read(//usr/local/bin/**)"
+      "Read(//usr/local/bin/**)",
+      "Bash(find /Users/goodjob/mobile/doan -maxdepth 2 -type d -name \"BE.Weather-*\" -o -name \"Weather-Admin\" -o -name \"noaa_weather\" | head -20)",
+      "Read(//Users/goodjob/mobile/doan/**)",
+      "Bash(chmod +x /Users/goodjob/mobile/doan/Weather-Admin/scripts/*.sh)"
     ],
     "additionalDirectories": [
-      "/Users/goodjob/mobile/doan/Weather-Admin"
+      "/Users/goodjob/mobile/doan/Weather-Admin",
+      "/Users/goodjob/mobile/doan/BE.Weather-Tiles",
+      "/Users/goodjob/mobile/doan/noaa_weather",
+      "/Users/goodjob/mobile/doan"
     ]
   }
 }

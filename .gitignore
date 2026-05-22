@@ -1,6 +1,14 @@
+# ── Secrets (NEVER COMMIT) ──────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
 # Data cache (downloaded từ NOAA/ECMWF — không commit)
 data/
 *.log
+logs/
 
 # OS
 .DS_Store
