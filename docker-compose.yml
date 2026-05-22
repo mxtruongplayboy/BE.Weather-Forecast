@@ -111,7 +111,15 @@ services:
       options:
         max-size: "30m"
         max-file: "3"
-    command: download-loop ncep_gfs013
+    # Image mới đã bỏ `download-loop` → thay bằng `sync` (cùng behavior: poll
+    # nguồn upstream + download file mới). Phải liệt kê variables tường minh —
+    # đây là toàn bộ field FE Flutter app đang request (hourly + daily).
+    command: >
+      sync ncep_gfs013
+      temperature_2m,relative_humidity_2m,dewpoint_2m,apparent_temperature,
+      precipitation,precipitation_probability,weather_code,pressure_msl,
+      surface_pressure,cloud_cover,visibility,wind_speed_10m,wind_direction_10m,
+      wind_gusts_10m,uv_index,shortwave_radiation
 
   # ── Sync ECMWF IFS Open Data (omfc-sync-ecmwf) ───────────────────────────
   sync-ecmwf:
@@ -137,9 +145,16 @@ services:
       options:
         max-size: "30m"
         max-file: "3"
-    command: download-loop ecmwf_ifs025
+    command: >
+      sync ecmwf_ifs025
+      temperature_2m,relative_humidity_2m,dewpoint_2m,apparent_temperature,
+      precipitation,precipitation_probability,weather_code,pressure_msl,
+      surface_pressure,cloud_cover,wind_speed_10m,wind_direction_10m,
+      wind_gusts_10m
 
-  # ── Sync CAMS Europe Air Quality (omfc-sync-aqi) ─────────────────────────
+  # ── Sync CAMS Global Air Quality (omfc-sync-aqi) ─────────────────────────
+  # IMPORTANT: dùng `cams_global`, KHÔNG phải `cams_europe`.
+  # cams_europe chỉ phủ Châu Âu → Việt Nam không có data → AQI rỗng.
   sync-aqi:
     image: ghcr.io/open-meteo/open-meteo:latest
     container_name: omfc-sync-aqi
@@ -163,7 +178,10 @@ services:
       options:
         max-size: "30m"
         max-file: "3"
-    command: download-loop cams_europe
+    command: >
+      sync cams_global
+      pm2_5,pm10,carbon_monoxide,nitrogen_dioxide,ozone,sulphur_dioxide,
+      dust,aerosol_optical_depth,uv_index
 
 # Tổng tài nguyên cap khi peak: 14G RAM, 5.5 cores. Trên VPS 206.72.200.120
 # (đã có tile-BE chiếm 2.5 cores + 12G), cần đảm bảo host có ≥20G RAM + 8 cores
