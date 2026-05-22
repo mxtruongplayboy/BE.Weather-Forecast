@@ -5,7 +5,12 @@
       "Read(//Users/goodjob/mobile/doan/BE.Weather-Tiles/noaa_be/app/static/**)",
       "Bash(find /Users/goodjob/mobile/doan/BE.Weather-Tiles/noaa_be/app -type f -name \"*.py\" | grep -E \"\\(core|util|service|model|task\\)\" | head -20)",
       "Read(//Users/goodjob/mobile/doan/BE.Weather-Tiles/noaa_be/app/**)",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(find /Users/goodjob/mobile/doan/BE.Weather-Tiles -name \"index.html\" -type f)",
+      "Read(//Users/goodjob/mobile/doan/BE.Weather-Tiles/**)",
+      "Bash(node -e ' *)",
+      "Bash(which deno *)",
+      "Read(//usr/local/bin/**)"
     ],
     "additionalDirectories": [
       "/Users/goodjob/mobile/doan/Weather-Admin"
