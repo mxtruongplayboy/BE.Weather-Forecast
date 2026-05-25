@@ -29,6 +29,11 @@ name: open-meteo-forecast
 networks:
   omfc-net:
     name: omfc-net
+  # Shared cross-stack network (xem BE.Weather-Tiles/docker-compose.yml comment).
+  # Admin gọi forecast qua container name `omfc-api:8080`.
+  weather-net:
+    external: true
+    name: weather-net
 
 services:
   # ── REST API (omfc-api) ──────────────────────────────────────────────────
@@ -38,7 +43,7 @@ services:
     image: ghcr.io/open-meteo/open-meteo:latest
     container_name: omfc-api
     restart: unless-stopped
-    networks: [omfc-net]
+    networks: [omfc-net, weather-net]
     labels:
       # Opt-in auto-update qua Weather-Watchtower (4 AM check).
       com.centurylinklabs.watchtower.enable: "true"
