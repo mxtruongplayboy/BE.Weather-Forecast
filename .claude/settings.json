@@ -13,13 +13,24 @@
       "Read(//usr/local/bin/**)",
       "Bash(find /Users/goodjob/mobile/doan -maxdepth 2 -type d -name \"BE.Weather-*\" -o -name \"Weather-Admin\" -o -name \"noaa_weather\" | head -20)",
       "Read(//Users/goodjob/mobile/doan/**)",
-      "Bash(chmod +x /Users/goodjob/mobile/doan/Weather-Admin/scripts/*.sh)"
+      "Bash(chmod +x /Users/goodjob/mobile/doan/Weather-Admin/scripts/*.sh)",
+      "Bash(cp -r . /tmp/tabs-backup-md3)",
+      "Read(//tmp/**)",
+      "Bash(python3 /tmp/migrate_tabs.py)",
+      "Bash(grep -v \"^md-\\\\|^material-symbols\\\\|^flex\\\\|^gap-\\\\|^mt-\\\\|^mb-\\\\|^p-\\\\|^pt-\\\\|^pb-\\\\|^text-\\\\|^items-\\\\|^justify-\\\\|^grid\\\\|^w-\\\\|^h-\\\\|^surface\\\\|^rounded\\\\|^shadow\\\\|^cursor\\\\|^overflow\\\\|^min-w\\\\|^break\\\\|^pre-\\\\|^code-\\\\|^font-\\\\|^col\\\\|^row\\\\|^between\\\\|^mono\\\\|^dim\\\\|^muted\\\\|^metric-\\\\|^app-\\\\|^tab-\\\\|^modal\\\\|^toast\\\\|^card$\")",
+      "WebFetch(domain:climeradar.com)",
+      "Bash(python3 -c \"import ast; [ast.parse\\(open\\(f\\).read\\(\\)\\) for f in ['app/main.py','app/auth.py','app/config.py','app/routers/setup.py','app/routers/bes.py','app/services/admin_config.py','app/services/alerts.py']]\")",
+      "Bash(grep -n \"^function terminalView\\\\|^}$\" /Users/goodjob/mobile/doan/Weather-Admin/app/static/tab-components.js)",
+      "Bash(xargs sed -i '' 's/material-symbols-rounded/material-symbols-outlined/g')",
+      "Bash(xargs -I {} sed -i '' 's/Material Symbols Rounded/Material Symbols Outlined/g; s/Material+Symbols+Rounded/Material+Symbols+Outlined/g' {})"
     ],
     "additionalDirectories": [
       "/Users/goodjob/mobile/doan/Weather-Admin",
       "/Users/goodjob/mobile/doan/BE.Weather-Tiles",
       "/Users/goodjob/mobile/doan/noaa_weather",
-      "/Users/goodjob/mobile/doan"
+      "/Users/goodjob/mobile/doan",
+      "/tmp",
+      "/private/tmp"
     ]
   }
 }
