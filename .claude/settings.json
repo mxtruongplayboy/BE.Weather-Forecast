@@ -22,7 +22,11 @@
       "Bash(python3 -c \"import ast; [ast.parse\\(open\\(f\\).read\\(\\)\\) for f in ['app/main.py','app/auth.py','app/config.py','app/routers/setup.py','app/routers/bes.py','app/services/admin_config.py','app/services/alerts.py']]\")",
       "Bash(grep -n \"^function terminalView\\\\|^}$\" /Users/goodjob/mobile/doan/Weather-Admin/app/static/tab-components.js)",
       "Bash(xargs sed -i '' 's/material-symbols-rounded/material-symbols-outlined/g')",
-      "Bash(xargs -I {} sed -i '' 's/Material Symbols Rounded/Material Symbols Outlined/g; s/Material+Symbols+Rounded/Material+Symbols+Outlined/g' {})"
+      "Bash(xargs -I {} sed -i '' 's/Material Symbols Rounded/Material Symbols Outlined/g; s/Material+Symbols+Rounded/Material+Symbols+Outlined/g' {})",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('/Users/goodjob/mobile/doan/Weather-Admin/app/routers/forecast.py'\\).read\\(\\)\\)\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('/Users/goodjob/mobile/doan/Weather-Admin/app/services/forecast_monitor.py'\\).read\\(\\)\\)\")",
+      "Bash(awk '/function forecastView/,/^}/' /Users/goodjob/mobile/doan/Weather-Admin/app/static/tab-components.js)",
+      "Bash(git -C /Users/goodjob/mobile/doan/Weather-Admin status -s)"
     ],
     "additionalDirectories": [
       "/Users/goodjob/mobile/doan/Weather-Admin",
