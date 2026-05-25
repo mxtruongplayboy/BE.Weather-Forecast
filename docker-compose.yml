@@ -135,11 +135,24 @@ services:
     # `sync` lấy file .om đã convert sẵn từ Open-Meteo S3 mirror — nhanh + nhẹ
     # hơn nhiều so với download GRIB2 từ NOMADS rồi tự convert.
     # --repeat-interval 15 → poll S3 mỗi 15 phút (không có flag này = chạy 1 lần
-    # rồi exit). Variables = toàn bộ field FE app yêu cầu.
+    # rồi exit).
+    #
+    # IMPORTANT: chỉ list RAW variables (có trên S3 mirror). Derived vars như
+    # wind_speed_10m, wind_direction_10m, weather_code, dewpoint_2m,
+    # apparent_temperature sẽ được binary tự compute on-the-fly từ raw vars
+    # khi App gọi /v1/forecast?current=...
+    #
+    # Mapping derived → raw:
+    #   wind_speed_10m, wind_direction_10m ← wind_u_component_10m + wind_v_component_10m
+    #   weather_code                       ← precipitation + snowfall_water_equivalent
+    #                                        + cloud_cover + categorical_*
+    #   dewpoint_2m                        ← temperature_2m + relative_humidity_2m
+    #   apparent_temperature               ← temperature + RH + wind + radiation
+    #   pressure_msl ↔ surface_pressure    ← bất kỳ cái nào (binary derive cái kia)
     command:
       - sync
       - ncep_gfs013
-      - temperature_2m,relative_humidity_2m,dewpoint_2m,apparent_temperature,precipitation,weather_code,pressure_msl,surface_pressure,cloud_cover,visibility,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,shortwave_radiation
+      - temperature_2m,relative_humidity_2m,precipitation,snowfall_water_equivalent,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,shortwave_radiation,uv_index,wind_u_component_10m,wind_v_component_10m,wind_u_component_80m,wind_v_component_80m,wind_gusts_10m,pressure_msl,visibility,cape,freezing_level_height
       - --repeat-interval
       - "15"
       - --concurrent
@@ -171,10 +184,12 @@ services:
       options:
         max-size: "30m"
         max-file: "3"
+    # ECMWF Open Data raw vars trên Open-Meteo S3 mirror.
+    # Derived sẽ tự tính (xem comment GFS ở trên).
     command:
       - sync
       - ecmwf_ifs025
-      - temperature_2m,relative_humidity_2m,dewpoint_2m,apparent_temperature,precipitation,weather_code,pressure_msl,surface_pressure,cloud_cover,wind_speed_10m,wind_direction_10m,wind_gusts_10m
+      - temperature_2m,dewpoint_2m,precipitation,snowfall_water_equivalent,cloud_cover_low,cloud_cover_mid,cloud_cover_high,wind_u_component_10m,wind_v_component_10m,wind_u_component_100m,wind_v_component_100m,wind_gusts_10m,pressure_msl
       - --repeat-interval
       - "15"
       - --concurrent
