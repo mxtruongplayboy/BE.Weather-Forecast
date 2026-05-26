@@ -56,9 +56,8 @@ services:
       # Bind 127.0.0.1 ONLY → port 6968 KHÔNG listen public interface.
       # Public traffic PHẢI qua nginx vhost SSL (xem nginx/forecast-api.conf).
       # admin BE container vẫn gọi được qua host.docker.internal:6968 (extra_hosts).
-      # Mở thêm cổng 8081 để "chiều" theo NGINX cũ trên VPS mà không cần quyền Root!
-      - "127.0.0.1:6968:8080"
-      - "127.0.0.1:8081:8080"
+      # Mở thẳng cổng 6968 ra Internet để bypass NGINX bị lỗi
+      - "0.0.0.0:6968:8080"
 
     volumes:
       - ./data:/app/data
