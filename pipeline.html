@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>Forecast Pipeline — Từ dữ liệu thô đến Mobile</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --bg2: #131a32;
+    --card: #1a2444;
+    --card2: #223057;
+    --border: #2e3d6b;
+    --text: #e7ecf7;
+    --muted: #9aa6c8;
+    --noaa: #4ea1ff;
+    --ecmwf: #7c5cff;
+    --cams: #ff9f43;
+    --sync: #2ecc71;
+    --storage: #f1c40f;
+    --api: #e74c3c;
+    --nginx: #1abc9c;
+    --mobile: #ff6b9d;
+    --warn: #ff7a59;
+    --ok: #2ecc71;
+    --arrow: #5a6fa8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px;
+    background: radial-gradient(1200px 800px at 20% -10%, #1a2858 0%, var(--bg) 60%), var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 1400px; margin: 0 auto; }
+  h1 {
+    font-size: 28px; margin: 0 0 4px;
+    background: linear-gradient(90deg, #6ec1ff, #b48dff, #ff9fc4);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .sub { color: var(--muted); margin: 0 0 28px; font-size: 14px; }
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 10px;
+    margin-bottom: 32px; padding: 12px 16px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    font-size: 12px;
+  }
+  .legend .item { display: flex; align-items: center; gap: 6px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+
+  .stage {
+    position: relative;
+    margin-bottom: 14px;
+  }
+  .stage-label {
+    position: absolute;
+    left: -8px; top: 0;
+    font-size: 11px; font-weight: 700; letter-spacing: 1.2px;
+    color: var(--muted);
+    text-transform: uppercase;
+    padding: 4px 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+  .stage-title {
+    margin-left: 110px;
+    font-size: 16px; font-weight: 600; margin-bottom: 12px;
+    color: var(--text);
+  }
+  .stage-title .meta {
+    color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 8px;
+  }
+
+  .row { display: grid; gap: 14px; }
+  .row-3 { grid-template-columns: repeat(3, 1fr); }
+  .row-2 { grid-template-columns: 1fr 1fr; }
+  .row-1 { grid-template-columns: 1fr; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px 16px;
+    position: relative;
+    overflow: hidden;
+  }
+  .card .accent {
+    position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+    background: var(--noaa);
+  }
+  .card.noaa .accent { background: var(--noaa); }
+  .card.ecmwf .accent { background: var(--ecmwf); }
+  .card.cams .accent { background: var(--cams); }
+  .card.sync .accent { background: var(--sync); }
+  .card.storage .accent { background: var(--storage); }
+  .card.api .accent { background: var(--api); }
+  .card.nginx .accent { background: var(--nginx); }
+  .card.mobile .accent { background: var(--mobile); }
+  .card.s3 .accent { background: linear-gradient(180deg, var(--noaa), var(--ecmwf), var(--cams)); }
+
+  .card h3 {
+    margin: 0 0 6px; font-size: 15px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .card h3 .tag {
+    font-size: 10px; padding: 2px 6px; border-radius: 4px;
+    background: rgba(255,255,255,0.08); color: var(--muted);
+    font-weight: 500; letter-spacing: 0.5px;
+  }
+  .card .desc { font-size: 13px; color: var(--muted); margin: 0 0 8px; }
+  .card .kv { font-size: 12px; line-height: 1.7; }
+  .card .kv b { color: var(--text); font-weight: 600; }
+  .card .kv .v { color: var(--muted); }
+  .card .pill {
+    display: inline-block; font-size: 11px;
+    padding: 2px 8px; border-radius: 999px;
+    background: rgba(255,255,255,0.06); color: var(--muted);
+    margin: 2px 4px 2px 0;
+  }
+  .card .pill.green { background: rgba(46,204,113,0.15); color: #6ee7a7; }
+  .card .pill.blue { background: rgba(78,161,255,0.15); color: #9cc6ff; }
+  .card .pill.orange { background: rgba(255,159,67,0.15); color: #ffc890; }
+  .card .pill.purple { background: rgba(124,92,255,0.15); color: #c7b6ff; }
+
+  .arrow {
+    display: flex; justify-content: center; align-items: center;
+    height: 36px; margin: 2px 0;
+    color: var(--arrow);
+    font-size: 22px;
+  }
+  .arrow .label {
+    background: var(--bg);
+    border: 1px dashed var(--border);
+    color: var(--muted);
+    font-size: 11px;
+    padding: 3px 10px; border-radius: 999px;
+    margin: 0 8px;
+  }
+
+  /* Timeline */
+  .timeline {
+    margin-top: 36px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+  }
+  .timeline h2 { margin: 0 0 16px; font-size: 18px; }
+  .tl-rail {
+    position: relative;
+    margin: 30px 10px 10px;
+    height: 4px;
+    background: linear-gradient(90deg, var(--noaa) 0%, var(--ecmwf) 30%, var(--sync) 55%, var(--storage) 75%, var(--mobile) 100%);
+    border-radius: 2px;
+  }
+  .tl-item {
+    position: absolute; top: -28px;
+    transform: translateX(-50%);
+    text-align: center;
+    width: 130px;
+  }
+  .tl-item::after {
+    content: ''; position: absolute;
+    left: 50%; bottom: -16px; transform: translateX(-50%);
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--text); border: 2px solid var(--bg);
+  }
+  .tl-item .t { font-size: 11px; color: var(--muted); }
+  .tl-item .e { font-size: 12px; font-weight: 600; margin-top: 2px; }
+  .tl-legend {
+    margin-top: 60px; font-size: 12px; color: var(--muted);
+    display: flex; justify-content: space-between;
+  }
+
+  /* Cycle table */
+  .cycles {
+    margin-top: 36px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+  }
+  .cycles h2 { margin: 0 0 16px; font-size: 18px; }
+  table {
+    width: 100%; border-collapse: collapse; font-size: 13px;
+  }
+  th, td {
+    text-align: left; padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  th { font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: 1px; font-weight: 600; }
+  tbody tr:hover { background: rgba(255,255,255,0.03); }
+  td .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--muted); }
+
+  /* Switch live diagram */
+  .switch-live {
+    margin-top: 36px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+  }
+  .switch-live h2 { margin: 0 0 16px; font-size: 18px; }
+  .switch-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .step {
+    background: var(--card2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    position: relative;
+  }
+  .step .num {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--api); color: white;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 13px;
+    margin-bottom: 8px;
+  }
+  .step h4 { margin: 0 0 6px; font-size: 13px; }
+  .step p { margin: 0; font-size: 12px; color: var(--muted); }
+  .step .mono {
+    display: block; margin-top: 8px;
+    font-family: ui-monospace, monospace; font-size: 11px;
+    background: var(--bg); padding: 6px 8px; border-radius: 6px;
+    color: #9cc6ff; border: 1px solid var(--border);
+    word-break: break-all;
+  }
+
+  /* Storage tree */
+  .tree {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px; line-height: 1.7;
+    background: var(--bg); padding: 14px 16px;
+    border: 1px solid var(--border); border-radius: 10px;
+    color: var(--muted);
+  }
+  .tree .dir { color: #9cc6ff; }
+  .tree .file { color: #ffc890; }
+  .tree .cmt { color: #6b7aa3; }
+
+  footer {
+    margin-top: 40px; padding-top: 20px;
+    border-top: 1px solid var(--border);
+    color: var(--muted); font-size: 12px;
+    text-align: center;
+  }
+  footer code {
+    background: var(--card); padding: 2px 6px; border-radius: 4px;
+    color: #ffc890;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>🌦️ Forecast Pipeline — từ dữ liệu thô đến Mobile</h1>
+  <p class="sub">Stack <b>open-meteo-forecast</b> (VPS 206.72.200.120) · 3 nguồn upstream → S3 mirror → sync mỗi 15–30' → <code>./data</code> → omfc-api → nginx → Flutter app</p>
+
+  <div class="legend">
+    <span class="item"><span class="dot" style="background:var(--noaa)"></span>NOAA GFS</span>
+    <span class="item"><span class="dot" style="background:var(--ecmwf)"></span>ECMWF IFS</span>
+    <span class="item"><span class="dot" style="background:var(--cams)"></span>CAMS AQI</span>
+    <span class="item"><span class="dot" style="background:var(--sync)"></span>Sync container</span>
+    <span class="item"><span class="dot" style="background:var(--storage)"></span>Storage volume</span>
+    <span class="item"><span class="dot" style="background:var(--api)"></span>omfc-api</span>
+    <span class="item"><span class="dot" style="background:var(--nginx)"></span>nginx TLS</span>
+    <span class="item"><span class="dot" style="background:var(--mobile)"></span>Mobile</span>
+  </div>
+
+  <!-- STAGE 1 -->
+  <div class="stage">
+    <div class="stage-label">STAGE 1</div>
+    <div class="stage-title">Upstream Sources <span class="meta">— các trung tâm khí tượng quốc tế chạy model</span></div>
+    <div class="row row-3">
+      <div class="card noaa">
+        <div class="accent"></div>
+        <h3>NOAA GFS <span class="tag">ncep_gfs013</span></h3>
+        <p class="desc">National Weather Service · Global Forecast System (Mỹ)</p>
+        <div class="kv">
+          <b>Cycle:</b> <span class="v">4×/ngày · 00z, 06z, 12z, 18z UTC</span><br>
+          <b>Resolution:</b> <span class="v">0.13° (~13 km)</span><br>
+          <b>Max forecast:</b> <span class="v">16 ngày</span><br>
+          <b>Publish delay:</b> <span class="v">~5h sau giờ cycle</span>
+        </div>
+        <div style="margin-top:8px">
+          <span class="pill blue">19 raw vars</span>
+          <span class="pill green">+6 derived</span>
+        </div>
+      </div>
+      <div class="card ecmwf">
+        <div class="accent"></div>
+        <h3>ECMWF IFS <span class="tag">ecmwf_ifs025</span></h3>
+        <p class="desc">European Centre · Integrated Forecast System (Open Data subset)</p>
+        <div class="kv">
+          <b>Cycle:</b> <span class="v">4×/ngày · 00z, 06z, 12z, 18z UTC</span><br>
+          <b>Resolution:</b> <span class="v">0.25° (~25 km)</span><br>
+          <b>Max forecast:</b> <span class="v">15 ngày</span><br>
+          <b>Publish delay:</b> <span class="v">~7h (chậm hơn NOAA)</span>
+        </div>
+        <div style="margin-top:8px">
+          <span class="pill purple">13 raw vars</span>
+          <span class="pill green">+7 derived</span>
+        </div>
+      </div>
+      <div class="card cams">
+        <div class="accent"></div>
+        <h3>CAMS Global <span class="tag">cams_global</span></h3>
+        <p class="desc">Copernicus Atmosphere Monitoring · Chất lượng không khí toàn cầu</p>
+        <div class="kv">
+          <b>Cycle:</b> <span class="v">2×/ngày · 00z, 12z UTC</span><br>
+          <b>Resolution:</b> <span class="v">0.4° (~40 km)</span><br>
+          <b>Max forecast:</b> <span class="v">5 ngày</span><br>
+          <b>Publish delay:</b> <span class="v">~8h</span>
+        </div>
+        <div style="margin-top:8px">
+          <span class="pill orange">9 vars</span>
+          <span class="pill">PM2.5 · PM10 · O₃ · NO₂ · SO₂ · CO · dust · AOD · UV</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">↓<span class="label">Open-Meteo convert GRIB2 → .om · upload S3</span>↓</div>
+
+  <!-- STAGE 2 -->
+  <div class="stage">
+    <div class="stage-label">STAGE 2</div>
+    <div class="stage-title">S3 Mirror <span class="meta">— Open-Meteo public mirror (preconverted)</span></div>
+    <div class="row row-1">
+      <div class="card s3">
+        <div class="accent"></div>
+        <h3>openmeteo.s3.amazonaws.com <span class="tag">HTTPS public</span></h3>
+        <p class="desc">Mirror chứa file <b>.om</b> đã convert sẵn từ GRIB2 — nhẹ và nhanh hơn nhiều so với pull GRIB2 trực tiếp từ NOMADS / ECMWF.</p>
+        <div class="kv">
+          <b>Path prefix:</b> <span class="mono v">/data/&lt;model&gt;/&lt;variable&gt;/chunk_&lt;N&gt;.om</span><br>
+          <b>Update:</b> <span class="v">tự động sau khi Open-Meteo hậu xử lý xong mỗi run upstream</span>
+        </div>
+        <div style="margin-top:8px">
+          <span class="pill green">✓ Format columnar chunked .om</span>
+          <span class="pill blue">✓ Mỗi var lưu riêng → tiết kiệm bandwidth</span>
+          <span class="pill orange">✗ KHÔNG tải GRIB2 trực tiếp</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">↓<span class="label">sync container poll mỗi 15' (GFS/ECMWF) hoặc 30' (CAMS)</span>↓</div>
+
+  <!-- STAGE 3 -->
+  <div class="stage">
+    <div class="stage-label">STAGE 3</div>
+    <div class="stage-title">Sync Containers <span class="meta">— omfc-sync-* poll S3, tải chunk mới về data volume</span></div>
+    <div class="row row-3">
+      <div class="card sync">
+        <div class="accent"></div>
+        <h3>omfc-sync-gfs</h3>
+        <p class="desc">Tải GFS chunk từ S3</p>
+        <div class="kv">
+          <b>--repeat-interval:</b> <span class="v">15 phút</span><br>
+          <b>--concurrent:</b> <span class="v">4 file song song</span><br>
+          <b>--past-days:</b> <span class="v">1 (giữ buffer hôm qua)</span><br>
+          <b>Mem cap:</b> <span class="v">4 GB · CPU 1.5 cores</span>
+        </div>
+      </div>
+      <div class="card sync">
+        <div class="accent"></div>
+        <h3>omfc-sync-ecmwf</h3>
+        <p class="desc">Tải ECMWF IFS chunk từ S3</p>
+        <div class="kv">
+          <b>--repeat-interval:</b> <span class="v">15 phút</span><br>
+          <b>--concurrent:</b> <span class="v">4 file song song</span><br>
+          <b>--past-days:</b> <span class="v">1</span><br>
+          <b>Mem cap:</b> <span class="v">4 GB · CPU 1.5 cores</span>
+        </div>
+      </div>
+      <div class="card sync">
+        <div class="accent"></div>
+        <h3>omfc-sync-aqi</h3>
+        <p class="desc">Tải CAMS chất lượng không khí</p>
+        <div class="kv">
+          <b>--repeat-interval:</b> <span class="v">30 phút</span><br>
+          <b>--concurrent:</b> <span class="v">2 file song song</span><br>
+          <b>--past-days:</b> <span class="v">1</span><br>
+          <b>Mem cap:</b> <span class="v">2 GB · CPU 1.0 cores</span>
+        </div>
+      </div>
+    </div>
+    <div class="row row-1" style="margin-top:14px">
+      <div class="card" style="background:var(--card2)">
+        <div class="accent" style="background:var(--sync)"></div>
+        <h3>🧠 Cơ chế tải</h3>
+        <p class="desc" style="color:var(--text)">
+          1. Mỗi 15'/30' wake lên · 2. So sánh manifest S3 vs file local · 3. Chỉ tải chunk MỚI HƠN ·
+          4. Tải vào <code style="color:#ffc890">chunk_X.om.tmp</code> · 5. Verify checksum · 6.
+          <b style="color:#6ee7a7">rename atomic → chunk_X.om</b> (đây là moment "switch live").
+          Idle: ngủ ~256 MB RAM giữa các cycle.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">↓<span class="label">ghi vào volume ./data — atomic rename khi xong</span>↓</div>
+
+  <!-- STAGE 4 -->
+  <div class="stage">
+    <div class="stage-label">STAGE 4</div>
+    <div class="stage-title">Storage <span class="meta">— ./data trên VPS host, mount /app/data trong container</span></div>
+    <div class="row row-2">
+      <div class="card storage">
+        <div class="accent"></div>
+        <h3>Cấu trúc volume</h3>
+        <div class="tree">
+<span class="dir">./data/</span>  <span class="cmt"># /opt/open-meteo-forecast/data</span>
+├── <span class="dir">ncep_gfs013/</span>
+│   ├── <span class="dir">temperature_2m/</span>
+│   │   ├── <span class="file">chunk_142.om</span>   <span class="cmt"># run cũ (1 ngày)</span>
+│   │   ├── <span class="file">chunk_143.om</span>   <span class="cmt"># run mới ✓ LIVE</span>
+│   │   └── <span class="file">chunk_144.om.tmp</span> <span class="cmt"># đang tải</span>
+│   ├── <span class="dir">precipitation/</span>
+│   ├── <span class="dir">wind_u_component_10m/</span>
+│   └── <span class="cmt">... 19 raw vars</span>
+├── <span class="dir">ecmwf_ifs025/</span>
+│   └── <span class="cmt">... 13 raw vars</span>
+└── <span class="dir">cams_global/</span>
+    └── <span class="cmt">... 9 vars</span>
+        </div>
+      </div>
+      <div class="card storage">
+        <div class="accent"></div>
+        <h3>Dung lượng & vòng đời</h3>
+        <div class="kv">
+          <b>1 run đầy đủ:</b> <span class="v">~10–15 GB</span><br>
+          <b>Idle (1 run + past_days):</b> <span class="v">~20 GB</span><br>
+          <b>Cleanup ngưỡng cảnh báo:</b> <span class="v">&gt; 25 GB → ghi WARNING log</span><br>
+          <b>Cron cleanup:</b> <span class="v"><code style="color:#ffc890">0 * * * *</code> (mỗi giờ)</span><br>
+          <b>Lệnh:</b> <span class="mono v">delete-old-runs --keep-days 1</span>
+        </div>
+        <p class="desc" style="margin-top:10px">
+          Open-Meteo binary tự dọn chunk cũ &gt; 1 ngày. Lý do giữ 1 ngày:
+          (a) drain in-flight request đang mmap file cũ ·
+          (b) buffer detect corrupt file run mới ·
+          (c) cho API trả <code style="color:#ffc890">past_days=1</code>.
+        </p>
+        <div style="margin-top:8px">
+          <span class="pill orange">Log: /var/log/omfc-cleanup.log</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">↓<span class="label">mmap file .om, interpolate + derive on-the-fly</span>↓</div>
+
+  <!-- STAGE 5 -->
+  <div class="stage">
+    <div class="stage-label">STAGE 5</div>
+    <div class="stage-title">API Server <span class="meta">— omfc-api container serve REST trên port nội bộ 8080</span></div>
+    <div class="row row-2">
+      <div class="card api">
+        <div class="accent"></div>
+        <h3>omfc-api <span class="tag">ghcr.io/open-meteo/open-meteo:latest</span></h3>
+        <div class="kv">
+          <b>Command:</b> <span class="v">serve</span><br>
+          <b>Port:</b> <span class="v"><code style="color:#ffc890">127.0.0.1:6968 → 8080</code> (chỉ loopback)</span><br>
+          <b>Mem cap:</b> <span class="v">4 GB (peak ~1–2 GB)</span><br>
+          <b>Healthcheck:</b> <span class="v">60s · GET /v1/forecast?lat=10.77&amp;lon=106.7</span><br>
+          <b>Network:</b> <span class="v">omfc-net + weather-net (admin gọi nội bộ)</span>
+        </div>
+        <div style="margin-top:8px">
+          <span class="pill green">read-only rootfs</span>
+          <span class="pill green">cap_drop ALL</span>
+          <span class="pill green">no-new-privileges</span>
+        </div>
+      </div>
+      <div class="card api">
+        <div class="accent"></div>
+        <h3>Pipeline xử lý 1 request</h3>
+        <div class="kv">
+          <b>1.</b> <span class="v">Parse lat/lon/timezone/hourly/daily/current</span><br>
+          <b>2.</b> <span class="v">mmap chunk .om của từng biến yêu cầu</span><br>
+          <b>3.</b> <span class="v">Bilinear interpolate về toạ độ user</span><br>
+          <b>4.</b> <span class="v"><b style="color:#6ee7a7">Derive on-the-fly</b> các biến phái sinh</span><br>
+          <b>5.</b> <span class="v">JSON response (hourly/daily/current/units)</span>
+        </div>
+        <p class="desc" style="margin-top:10px">
+          <b style="color:#6ee7a7">Derived vars</b> (không lưu trên disk):
+          <code style="color:#ffc890">wind_speed/direction_10m</code> ← u,v ·
+          <code style="color:#ffc890">weather_code</code> ← precip+snow+cloud ·
+          <code style="color:#ffc890">dewpoint_2m</code> ← T+RH ·
+          <code style="color:#ffc890">apparent_temperature</code> ← T+RH+wind+radiation ·
+          <code style="color:#ffc890">surface_pressure ↔ pressure_msl</code>.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">↓<span class="label">reverse proxy + TLS termination</span>↓</div>
+
+  <!-- STAGE 6 -->
+  <div class="stage">
+    <div class="stage-label">STAGE 6</div>
+    <div class="stage-title">Nginx Edge <span class="meta">— TLS termination, rate-limit, micro-cache</span></div>
+    <div class="row row-2">
+      <div class="card nginx">
+        <div class="accent"></div>
+        <h3>forecast-api.yourdomain.com :443</h3>
+        <div class="kv">
+          <b>SSL:</b> <span class="v">Let's Encrypt · TLSv1.2/1.3</span><br>
+          <b>HSTS:</b> <span class="v">max-age=31536000</span><br>
+          <b>Rate limit:</b> <span class="v"><code style="color:#ffc890">30 req/s/IP</code> · burst 60 · 429 nếu quá</span><br>
+          <b>Logs:</b> <span class="v">/var/log/nginx/forecast-api.{access,error}.log</span>
+        </div>
+      </div>
+      <div class="card nginx">
+        <div class="accent"></div>
+        <h3>Proxy cache TTL 60s</h3>
+        <div class="kv">
+          <b>Zone:</b> <span class="v">omfc_cache · max 500 MB · inactive 10m</span><br>
+          <b>proxy_cache_valid:</b> <span class="v">200 → 60s</span><br>
+          <b>Stale serve:</b> <span class="v">error · timeout · updating · 5xx</span><br>
+          <b>Header debug:</b> <span class="v"><code style="color:#ffc890">X-Cache-Status: HIT/MISS</code></span>
+        </div>
+        <p class="desc" style="margin-top:10px">
+          Forecast chỉ thay đổi mỗi ~6h → cache 60s gần như 100% hit cho các điểm phổ biến,
+          giảm tải omfc-api xuống còn vài req/s thực sự xuống tới upstream.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">↓<span class="label">HTTPS · Dio client · JSON</span>↓</div>
+
+  <!-- STAGE 7 -->
+  <div class="stage">
+    <div class="stage-label">STAGE 7</div>
+    <div class="stage-title">Mobile (Flutter) <span class="meta">— noaa_weather app, 2 Dio instance</span></div>
+    <div class="row row-2">
+      <div class="card mobile">
+        <div class="accent"></div>
+        <h3>ForecastRemoteDataSource</h3>
+        <p class="desc">DI key <code style="color:#ffc890">@Named('openMeteoForecast')</code> + <code style="color:#ffc890">@Named('openMeteoAirQuality')</code></p>
+        <div class="kv">
+          <b>Default base:</b> <span class="v">api.open-meteo.com (public)</span><br>
+          <b>Self-host:</b> <span class="v">override qua ENV → forecast-api.yourdomain.com</span><br>
+          <b>Hourly params:</b> <span class="v">11 biến (T, apparent T, precip prob, precip, code, UV, wind, vis, RH, surface_p)</span><br>
+          <b>Daily params:</b> <span class="v">9 biến (T max/min, code, UV max, precip sum/prob, sunrise/set, wind max)</span>
+        </div>
+      </div>
+      <div class="card mobile">
+        <div class="accent"></div>
+        <h3>Flow trong app</h3>
+        <div class="kv">
+          <b>1.</b> <span class="v">User mở tab Dự báo</span><br>
+          <b>2.</b> <span class="v">2 request song song: /v1/forecast + /v1/air-quality</span><br>
+          <b>3.</b> <span class="v">open_meteo_parser.dart → entity</span><br>
+          <b>4.</b> <span class="v">BLoC/state → UI rebuild</span><br>
+          <b>5.</b> <span class="v">Talker log "🌤 [Open-Meteo] forecast @ (lat,lon)"</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TIMELINE -->
+  <div class="timeline">
+    <h2>⏱ Vòng đời 1 file <code style="color:#ffc890">.om</code> — ví dụ GFS 06z UTC</h2>
+    <div class="tl-rail">
+      <div class="tl-item" style="left: 0%">
+        <div class="e">T = 0</div>
+        <div class="t">NOAA chạy mô hình<br>(06:00 UTC / 13:00 VN)</div>
+      </div>
+      <div class="tl-item" style="left: 22%">
+        <div class="e">T + 4h</div>
+        <div class="t">GRIB2 lên NOMADS</div>
+      </div>
+      <div class="tl-item" style="left: 42%">
+        <div class="e">T + 5h</div>
+        <div class="t">Open-Meteo convert &amp;<br>upload S3 mirror</div>
+      </div>
+      <div class="tl-item" style="left: 60%">
+        <div class="e">T + 5h05'</div>
+        <div class="t">omfc-sync-gfs poll,<br>tải .om.tmp</div>
+      </div>
+      <div class="tl-item" style="left: 75%">
+        <div class="e">T + 5h08'</div>
+        <div class="t" style="color:#6ee7a7"><b>rename atomic</b><br>SWITCH LIVE</div>
+      </div>
+      <div class="tl-item" style="left: 88%">
+        <div class="e">T + 5h09'</div>
+        <div class="t">Mobile request đầu tiên<br>→ fill nginx cache 60s</div>
+      </div>
+      <div class="tl-item" style="left: 100%">
+        <div class="e">T + ~30h</div>
+        <div class="t" style="color:#ff7a59">Cleanup xoá<br>(keep-days=1)</div>
+      </div>
+    </div>
+    <div class="tl-legend">
+      <span>Upstream (NOAA/ECMWF/CAMS)</span>
+      <span>Mirror &amp; Sync</span>
+      <span>Live serve</span>
+      <span>Cleanup</span>
+    </div>
+  </div>
+
+  <!-- CYCLE TABLE -->
+  <div class="cycles">
+    <h2>📅 Lịch cycle cho 3 model (UTC → giờ VN +7)</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Model</th>
+          <th>Cycles/ngày</th>
+          <th>Giờ chạy UTC</th>
+          <th>Giờ chạy VN</th>
+          <th>Delay → live</th>
+          <th>Sync poll</th>
+          <th>Disk cleanup</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><b style="color:#9cc6ff">NOAA GFS</b><div class="mono">ncep_gfs013</div></td>
+          <td>4</td>
+          <td class="mono">00 · 06 · 12 · 18</td>
+          <td class="mono">07 · 13 · 19 · 01</td>
+          <td>~5h</td>
+          <td>mỗi 15'</td>
+          <td>cron mỗi giờ · keep 1 ngày</td>
+        </tr>
+        <tr>
+          <td><b style="color:#c7b6ff">ECMWF IFS</b><div class="mono">ecmwf_ifs025</div></td>
+          <td>4</td>
+          <td class="mono">00 · 06 · 12 · 18</td>
+          <td class="mono">07 · 13 · 19 · 01</td>
+          <td>~7h</td>
+          <td>mỗi 15'</td>
+          <td>cron mỗi giờ · keep 1 ngày</td>
+        </tr>
+        <tr>
+          <td><b style="color:#ffc890">CAMS Global</b><div class="mono">cams_global</div></td>
+          <td>2</td>
+          <td class="mono">00 · 12</td>
+          <td class="mono">07 · 19</td>
+          <td>~8h</td>
+          <td>mỗi 30'</td>
+          <td>cron mỗi giờ · keep 1 ngày</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- SWITCH LIVE -->
+  <div class="switch-live">
+    <h2>🔄 Cơ chế <b style="color:#6ee7a7">Switch Live</b> — atomic rename, không downtime</h2>
+    <p style="color:var(--muted); margin: 0 0 16px; font-size:13px">
+      Không có flag riêng. "Live switch" chính là <b>POSIX rename atomic</b> + <b>mmap re-open</b> lazy của Open-Meteo binary.
+    </p>
+    <div class="switch-steps">
+      <div class="step">
+        <div class="num">1</div>
+        <h4>Tải vào file tạm</h4>
+        <p>Sync container ghi dữ liệu mới vào file ẩn, API không bao giờ đọc file <code>.tmp</code>.</p>
+        <span class="mono">data/gfs/T2m/chunk_143.om.tmp</span>
+      </div>
+      <div class="step">
+        <div class="num">2</div>
+        <h4>Verify checksum</h4>
+        <p>So khớp size + hash với manifest S3 trước khi commit.</p>
+        <span class="mono">✓ size · ✓ hash · ✓ readable</span>
+      </div>
+      <div class="step">
+        <div class="num">3</div>
+        <h4>Atomic rename</h4>
+        <p>POSIX <code>rename(2)</code> trên cùng filesystem là atomic — không có "half state".</p>
+        <span class="mono">rename(.tmp, chunk_143.om)</span>
+      </div>
+      <div class="step">
+        <div class="num">4</div>
+        <h4>API re-open lazy</h4>
+        <p>Request tiếp theo đụng chunk này → omfc-api mmap file mới. User cũ vẫn đọc xong run cũ an toàn.</p>
+        <span class="mono">user N: run cũ · user N+1: run mới</span>
+      </div>
+    </div>
+    <p style="color:var(--muted); margin: 16px 0 0; font-size:13px">
+      <b style="color:#fff">Hệ quả:</b> không cần restart container · không có downtime · không có cờ phải toggle ·
+      độ trễ tối đa user thấy data mới = <b style="color:#6ee7a7">60s (nginx cache TTL)</b> sau moment rename.
+    </p>
+  </div>
+
+  <footer>
+    Generated từ <code>docker-compose.yml</code>, <code>cron/omfc-cleanup.sh</code>,
+    <code>nginx/forecast-api.conf</code>, <code>Weather-Admin/app/routers/forecast.py</code>,
+    <code>noaa_weather/lib/features/forecast/data/datasources/forecast_remote_datasource.dart</code>
+  </footer>
+
+</div>
+</body>
+</html>
