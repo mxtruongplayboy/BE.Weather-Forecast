@@ -198,6 +198,44 @@ services:
       - --past-days
       - "1"
 
+  # ── Sync DWD ICON Seamless (omfc-sync-icon) ──────────────────────────────
+  # DWD ICON cung cấp `visibility` mà GFS/ECMWF không có.
+  # icon_seamless = blend của icon_global (7 ngày) + icon_eu + icon_d2 (chi tiết).
+  # Chỉ sync các biến cần thiết để tiết kiệm disk + bandwidth.
+  sync-icon:
+    image: ghcr.io/open-meteo/open-meteo:latest
+    container_name: omfc-sync-icon
+    restart: unless-stopped
+    networks: [omfc-net]
+    cpu_shares: 512
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      TZ: Asia/Ho_Chi_Minh
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "30m"
+        max-file: "3"
+    command:
+      - sync
+      - icon_seamless
+      - visibility,precipitation_probability,pressure_msl,weather_code
+      - --repeat-interval
+      - "30"
+      - --concurrent
+      - "2"
+      - --past-days
+      - "1"
+
   # ── Sync CAMS Global Air Quality (omfc-sync-aqi) ─────────────────────────
   # IMPORTANT: dùng `cams_global`, KHÔNG phải `cams_europe`.
   # cams_europe chỉ phủ Châu Âu → Việt Nam không có data → AQI rỗng.
