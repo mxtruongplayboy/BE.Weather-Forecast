@@ -153,7 +153,7 @@ services:
     command:
       - sync
       - ncep_gfs013
-      - temperature_2m,relative_humidity_2m,precipitation,precipitation_probability,snowfall_water_equivalent,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,shortwave_radiation,uv_index,wind_u_component_10m,wind_v_component_10m,wind_u_component_80m,wind_v_component_80m,wind_gusts_10m,pressure_msl,visibility,cape,freezing_level_height
+      - temperature_2m,relative_humidity_2m,precipitation,precipitation_probability,snowfall_water_equivalent,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,shortwave_radiation,uv_index,wind_u_component_10m,wind_v_component_10m,wind_u_component_80m,wind_v_component_80m,wind_gusts_10m,visibility,cape,freezing_level_height
       - --repeat-interval
       - "15"
       - --concurrent
