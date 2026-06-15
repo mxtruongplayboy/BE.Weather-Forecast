@@ -273,6 +273,44 @@ services:
       - --past-days
       - "1"
 
+  # ── Sync GFS Wave (omfc-sync-wave) ───────────────────────────────────────
+  # Wave height/direction/period cho AI BE marine risk engine.
+  # ncep_gfs_wave: GFS Wave global model, cùng nguồn với GFS forecast đã sync.
+  # Endpoint: /v1/marine?latitude=X&longitude=Y&hourly=wave_height,wave_direction,wave_period
+  sync-wave:
+    image: ghcr.io/open-meteo/open-meteo:latest
+    container_name: omfc-sync-wave
+    restart: unless-stopped
+    networks: [omfc-net]
+    cpu_shares: 512
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      TZ: Asia/Ho_Chi_Minh
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "30m"
+        max-file: "3"
+    command:
+      - sync
+      - ncep_gfs_wave
+      - wave_height,wave_direction,wave_period,wind_wave_height,wind_wave_direction,wind_wave_period,swell_wave_height,swell_wave_direction,swell_wave_period
+      - --repeat-interval
+      - "30"
+      - --concurrent
+      - "2"
+      - --past-days
+      - "1"
+
 # Tổng tài nguyên cap khi peak: 14G RAM, 5.5 cores. Trên VPS 206.72.200.120
 # (đã có tile-BE chiếm 2.5 cores + 12G), cần đảm bảo host có ≥20G RAM + 8 cores
 # tổng. Idle ~3G RAM (chỉ omfc-api active), sync-* idle/sleep giữa các runs.
