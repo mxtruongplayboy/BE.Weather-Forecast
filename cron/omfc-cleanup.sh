@@ -33,27 +33,64 @@ if [ "$KEEP_CHUNKS" -lt 2 ]; then
 fi
 [ -d "$DATA_DIR" ] || { log "no data dir $DATA_DIR — skip"; exit 0; }
 
+# The sync containers write as uid 999 (openmeteo) and some variable dirs are
+# 0755, so the host deploy user can list but not delete. When the container is
+# up, delete through it (its image only ships `find`, no rm/xargs).
+CONTAINER="${CONTAINER:-omfc-api}"
+USE_CONTAINER=0
+if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$CONTAINER"; then
+    USE_CONTAINER=1
+fi
+
+# delete_paths <host path>... — paths under $DATA_DIR
+delete_paths() {
+    [ $# -gt 0 ] || return 0
+    if [ "$USE_CONTAINER" = "1" ]; then
+        local p rel=()
+        for p in "$@"; do rel+=("/app/data/${p#"$DATA_DIR"/}"); done
+        docker exec "$CONTAINER" find "${rel[@]}" -maxdepth 0 -delete
+    else
+        rm -f -- "$@"
+    fi
+}
+
 removed=0
 freed=0
 for var_dir in "$DATA_DIR"/*/*/; do
     # chunk_<n>.om sorted by n; keep the newest KEEP_CHUNKS
+    batch=()
+    batch_bytes=0
     while IFS= read -r f; do
         [ -n "$f" ] || continue
-        path="$var_dir$f"
+        path="${var_dir%/}/$f"
         size=$(stat -c%s "$path" 2>/dev/null || echo 0)
         if [ "$DRY_RUN" = "1" ]; then
             log "would delete $path ($((size / 1024 / 1024)) MB)"
         else
-            rm -f -- "$path" && removed=$((removed + 1)) && freed=$((freed + size))
+            batch+=("$path")
+            batch_bytes=$((batch_bytes + size))
         fi
     done < <(ls "$var_dir" 2>/dev/null | grep -E '^chunk_[0-9]+\.om$' | sort -t_ -k2 -n | head -n -"$KEEP_CHUNKS")
 
-    # Empty temp files left by writes that failed (e.g. disk full). Only
-    # touch ones older than a day so an in-progress write is never hit.
-    if [ "$DRY_RUN" != "1" ]; then
-        find "$var_dir" -maxdepth 1 -name '*.om~' -size 0 -mmin +1440 -delete 2>/dev/null
+    if [ ${#batch[@]} -gt 0 ]; then
+        if delete_paths "${batch[@]}"; then
+            removed=$((removed + ${#batch[@]}))
+            freed=$((freed + batch_bytes))
+        else
+            log "ERROR: could not delete in $var_dir"
+        fi
     fi
 done
+
+# Empty temp files left by writes that failed (e.g. disk full). Only touch
+# ones older than a day so an in-progress write is never hit.
+if [ "$DRY_RUN" != "1" ]; then
+    if [ "$USE_CONTAINER" = "1" ]; then
+        docker exec "$CONTAINER" find /app/data -mindepth 3 -maxdepth 3 -name '*.om~' -size 0 -mmin +1440 -delete 2>/dev/null
+    else
+        find "$DATA_DIR" -mindepth 3 -maxdepth 3 -name '*.om~' -size 0 -mmin +1440 -delete 2>/dev/null
+    fi
+fi
 
 log "pruned $removed chunks, freed $((freed / 1024 / 1024 / 1024)) GB (keep=$KEEP_CHUNKS dry_run=$DRY_RUN)"
 
