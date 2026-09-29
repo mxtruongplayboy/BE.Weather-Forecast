@@ -1,40 +1,65 @@
 #!/bin/bash
-# Cleanup Open-Meteo Forecast BE rolling cache.
+# Prune Open-Meteo chunk history so ./data stops growing.
 #
-# Cài đặt (chạy mỗi giờ qua crontab):
-#   sudo cp omfc-cleanup.sh /usr/local/bin/omfc-cleanup
-#   sudo chmod +x /usr/local/bin/omfc-cleanup
-#   sudo crontab -e
-#     → thêm dòng: 0 * * * * /usr/local/bin/omfc-cleanup
+# Open-Meteo `sync` stores each variable as time chunks (chunk_<n>.om, ~1 GB
+# per variable per chunk) and NEVER deletes old ones. The API only reads the
+# newest chunks for forecasts, so everything older is dead weight. Left alone
+# it reached 77 GB and, together with the tracking volumes, filled the VPS disk
+# to 100% (2026-09) — every stack went unhealthy and forecast sync stalled.
 #
-# Giữ 1 ngày run gần nhất — đủ để drain in-flight request + detect corrupt file.
-# Chạy mỗi giờ nên disk chỉ giữ ~1 run (~10-15 GB) thay vì tích lũy nhiều run.
-# KHÔNG đụng đến tile-server (chỉ exec vào container omfc-api).
+# Runs as the deploy user (no root needed), from the repo's own crontab line:
+#   crontab -e
+#     17 * * * * /home/dev/src/BE.Weather-Forecast/cron/omfc-cleanup.sh
+#
+# Env overrides:
+#   KEEP_CHUNKS=3        newest chunks kept per variable (default 3)
+#   DRY_RUN=1            only report what would be deleted
+#   DISK_WARN_PCT=85     log a WARNING when / is fuller than this
 
-set -euo pipefail
+set -uo pipefail
 
-LOG=/var/log/omfc-cleanup.log
-echo "[$(date -Iseconds)] omfc-cleanup start" >> "$LOG"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DATA_DIR="${DATA_DIR:-$REPO_DIR/data}"
+LOG="${LOG:-$REPO_DIR/logs/omfc-cleanup.log}"
+KEEP_CHUNKS="${KEEP_CHUNKS:-3}"
+DRY_RUN="${DRY_RUN:-0}"
+DISK_WARN_PCT="${DISK_WARN_PCT:-85}"
 
-# Verify container đang chạy
-if ! docker ps --format '{{.Names}}' | grep -q '^omfc-api$'; then
-    echo "[$(date -Iseconds)] omfc-api container not running, skip" >> "$LOG"
-    exit 0
+log() { echo "[$(date -Iseconds)] $*" | tee -a "$LOG" 2>/dev/null || echo "[$(date -Iseconds)] $*"; }
+
+if [ "$KEEP_CHUNKS" -lt 2 ]; then
+    log "KEEP_CHUNKS=$KEEP_CHUNKS too low (API needs current + previous chunk) — abort"
+    exit 1
 fi
+[ -d "$DATA_DIR" ] || { log "no data dir $DATA_DIR — skip"; exit 0; }
 
-# Open-Meteo CLI cleanup
-docker exec omfc-api /app/openmeteo-api delete-old-runs --keep-days 1 \
-    2>&1 | tee -a "$LOG"
+removed=0
+freed=0
+for var_dir in "$DATA_DIR"/*/*/; do
+    # chunk_<n>.om sorted by n; keep the newest KEEP_CHUNKS
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        path="$var_dir$f"
+        size=$(stat -c%s "$path" 2>/dev/null || echo 0)
+        if [ "$DRY_RUN" = "1" ]; then
+            log "would delete $path ($((size / 1024 / 1024)) MB)"
+        else
+            rm -f -- "$path" && removed=$((removed + 1)) && freed=$((freed + size))
+        fi
+    done < <(ls "$var_dir" 2>/dev/null | grep -E '^chunk_[0-9]+\.om$' | sort -t_ -k2 -n | head -n -"$KEEP_CHUNKS")
 
-# Cảnh báo nếu vượt 25GB (1 run ~10-15GB, buffer x1.5)
-DATA_DIR=/opt/open-meteo-forecast/data
-if [ -d "$DATA_DIR" ]; then
-    USED_GB=$(du -sBG "$DATA_DIR" | awk '{print $1}' | sed 's/G//')
-    echo "[$(date -Iseconds)] data size: ${USED_GB}G" >> "$LOG"
-    if [ "$USED_GB" -gt 25 ]; then
-        echo "[$(date -Iseconds)] WARNING: data size > 25GB" >> "$LOG"
-        # Optional: gửi alert qua email / Telegram / Slack
+    # Empty temp files left by writes that failed (e.g. disk full). Only
+    # touch ones older than a day so an in-progress write is never hit.
+    if [ "$DRY_RUN" != "1" ]; then
+        find "$var_dir" -maxdepth 1 -name '*.om~' -size 0 -mmin +1440 -delete 2>/dev/null
     fi
-fi
+done
 
-echo "[$(date -Iseconds)] omfc-cleanup done" >> "$LOG"
+log "pruned $removed chunks, freed $((freed / 1024 / 1024 / 1024)) GB (keep=$KEEP_CHUNKS dry_run=$DRY_RUN)"
+
+USED_PCT=$(df --output=pcent / 2>/dev/null | tail -1 | tr -dc '0-9')
+DATA_GB=$(du -sBG "$DATA_DIR" 2>/dev/null | awk '{print $1}' | tr -dc '0-9')
+log "data size: ${DATA_GB:-?}G, disk used: ${USED_PCT:-?}%"
+if [ -n "$USED_PCT" ] && [ "$USED_PCT" -ge "$DISK_WARN_PCT" ]; then
+    log "WARNING: disk / at ${USED_PCT}% (>= ${DISK_WARN_PCT}%)"
+fi
