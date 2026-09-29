@@ -198,9 +198,12 @@ services:
       - --past-days
       - "1"
 
-  # ── Sync DWD ICON Seamless (omfc-sync-icon) ──────────────────────────────
+  # ── Sync DWD ICON Global (omfc-sync-icon) ────────────────────────────────
   # DWD ICON cung cấp `visibility` mà GFS/ECMWF không có.
-  # icon_seamless = blend của icon_global (7 ngày) + icon_eu + icon_d2 (chi tiết).
+  # `sync` nhận tên STORAGE DOMAIN (dwd_icon, dwd_icon_eu, dwd_icon_d2…), KHÔNG
+  # nhận tên model của API như `icon_seamless` — tên đó làm binary thoát ngay
+  # với invalidValue và container restart >6000 lần (phát hiện 2026-09-29).
+  # icon_eu/icon_d2 không phủ Việt Nam nên chỉ cần dwd_icon (global).
   # Chỉ sync các biến cần thiết để tiết kiệm disk + bandwidth.
   sync-icon:
     image: ghcr.io/open-meteo/open-meteo:latest
@@ -227,7 +230,7 @@ services:
         max-file: "3"
     command:
       - sync
-      - icon_seamless
+      - dwd_icon
       - visibility,precipitation_probability,pressure_msl,weather_code
       - --repeat-interval
       - "30"
@@ -275,7 +278,8 @@ services:
 
   # ── Sync GFS Wave (omfc-sync-wave) ───────────────────────────────────────
   # Wave height/direction/period cho AI BE marine risk engine.
-  # ncep_gfs_wave: GFS Wave global model, cùng nguồn với GFS forecast đã sync.
+  # ncep_gfswave025: GFS Wave global 0.25° (storage domain; `ncep_gfs_wave`
+  # không tồn tại → crash loop như sync-icon).
   # Endpoint: /v1/marine?latitude=X&longitude=Y&hourly=wave_height,wave_direction,wave_period
   sync-wave:
     image: ghcr.io/open-meteo/open-meteo:latest
@@ -302,7 +306,7 @@ services:
         max-file: "3"
     command:
       - sync
-      - ncep_gfs_wave
+      - ncep_gfswave025
       - wave_height,wave_direction,wave_period,wind_wave_height,wind_wave_direction,wind_wave_period,swell_wave_height,swell_wave_direction,swell_wave_period
       - --repeat-interval
       - "30"
