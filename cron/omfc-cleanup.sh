@@ -12,7 +12,8 @@
 #     17 * * * * /home/dev/src/BE.Weather-Forecast/cron/omfc-cleanup.sh
 #
 # Env overrides:
-#   KEEP_CHUNKS=3        newest chunks kept per variable (default 3)
+#   KEEP_CHUNKS=2        newest chunks kept per variable (default 2: current +
+#                        previous — covers >= 8 days of past for every domain)
 #   DRY_RUN=1            only report what would be deleted
 #   DISK_WARN_PCT=85     log a WARNING when / is fuller than this
 
@@ -21,7 +22,7 @@ set -uo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DATA_DIR="${DATA_DIR:-$REPO_DIR/data}"
 LOG="${LOG:-$REPO_DIR/logs/omfc-cleanup.log}"
-KEEP_CHUNKS="${KEEP_CHUNKS:-3}"
+KEEP_CHUNKS="${KEEP_CHUNKS:-2}"
 DRY_RUN="${DRY_RUN:-0}"
 DISK_WARN_PCT="${DISK_WARN_PCT:-85}"
 
